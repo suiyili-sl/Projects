@@ -1,0 +1,31 @@
+[package]
+name = "Calculator"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { version = "1.0", features = ["full", "macros"] }
+rmcp = { version = "3.1", features = ["server", "transport-io", "transport-streamable-http-server"] }
+
+
+# Only StreamableHttp transport (explicit)
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+async-trait = "0.1.91"
+axum = "0.8.9"
+tracing-subscriber = "0.3.23"
+tracing = "0.1.44"
+schemars = "1.2.1"
+anyhow = "1.0.104"
+tokio-util = "0.7.19"
+
+num-complex = "0.4.6"
+thiserror = "2.0"
+
+rayon = "1.0"
+
+[dev-dependencies]
+rstest = {version = "0.26"}
+rstest-bdd = "0.6.0-beta3"
+rstest-bdd-macros = { version = "0.6.0-beta3", features = ["compile-time-validation"] }
+approx = { version = "0.6.0-rc2", features = ["num_complex"] }
