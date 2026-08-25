@@ -77,20 +77,27 @@ impl FourierTransform for InverseTransform {
 
 mod test {
     use super::*;
-    #[test]
-    fn test_transform() {
-        let input = vec![
-            ComplexValue::new(1.0, 0.0), ComplexValue::new(2.0, 0.0),
-            ComplexValue::new(1.5, 0.0), ComplexValue::new(2.5, 0.0),
-            ComplexValue::new(3.0, 0.0), ComplexValue::new(4.0, 0.0),
-            ComplexValue::new(5.5, 0.0), ComplexValue::new(7.0, 0.0)];
-        let polynomial_trans = PolynomialTransform::new(4);
-        let intermediate = polynomial_trans.transform(&input);
-        let inverse_trans = InverseTransform::new(4);
-        let output = inverse_trans.transform(&intermediate);
-        for i in 0..input.len() {
-            assert!(input[i].re - output[i].re < 0.001);
-            assert!(input[i].im - output[i].im < 0.001);
-        }
-    }
+    use crate::{scenario, given, when, then};
+
+    scenario!(fourier_transform "test poly and inverse transform" {
+        given!("a series complex values" {
+            let input = vec![
+                ComplexValue::new(1.0, 0.0), ComplexValue::new(2.0, 0.0),
+                ComplexValue::new(1.5, 0.0), ComplexValue::new(2.5, 0.0),
+                ComplexValue::new(3.0, 0.0), ComplexValue::new(4.0, 0.0),
+                ComplexValue::new(5.5, 0.0), ComplexValue::new(7.0, 0.0)];
+        });
+        when!("do poly and inverse transform" {
+            let polynomial_trans = PolynomialTransform::new(4);
+            let intermediate = polynomial_trans.transform(&input);
+            let inverse_trans = InverseTransform::new(4);
+            let output = inverse_trans.transform(&intermediate);
+        });
+        then!("it should be back to original series" {
+            for i in 0..input.len() {
+                assert!(input[i].re - output[i].re < 0.001);
+                assert!(input[i].im - output[i].im < 0.001);
+            }
+        });
+    });
 }

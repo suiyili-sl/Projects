@@ -1,7 +1,9 @@
 mod calculator;
-mod bignum;
+mod arithmetic;
 mod fft;
 mod domain_error;
+mod bignum;
+pub mod test;
 
 use calculator::Calculator;
 

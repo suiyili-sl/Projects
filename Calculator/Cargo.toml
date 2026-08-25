@@ -28,4 +28,3 @@ rayon = "1.0"
 rstest = {version = "0.26"}
 rstest-bdd = "0.6.0-beta3"
 rstest-bdd-macros = { version = "0.6.0-beta3", features = ["compile-time-validation"] }
-approx = { version = "0.6.0-rc2", features = ["num_complex"] }

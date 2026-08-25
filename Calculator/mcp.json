@@ -1,7 +1,7 @@
 {
   "mcpServers": {
     "calculator": {
-      "command": "C:\\Users\\suiyi\\Documents\\Projects\\Calculator\\target\\debug\\Calculator.exe",
+      "command": "[path/to]/Calculator.exe",
       "args": ["stdio"],
       "env": {}
     }

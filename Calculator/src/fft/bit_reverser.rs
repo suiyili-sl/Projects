@@ -1,5 +1,3 @@
-use crate::fft::fourier_transform::ComplexValue;
-
 pub struct BitReverser {
     size: u8,
 }
@@ -28,17 +26,21 @@ impl BitReverser {
         // 2. Full 64/32-bit reverse, then shift down to the right position
         clean_value.reverse_bits() >> (usize::BITS - (self.size as u32))
     }
-
-
 }
 
 mod test {
-
     use super::BitReverser;
-    #[test]
-    fn test_reverse_array() {
-        let source = vec![0, 1, 2, 3, 4, 5, 6];
-        let bit_reverse_array = BitReverser::new( 3);
-        assert_eq!(bit_reverse_array.get_reverse(&source), vec![0, 4, 2, 6, 1, 5, 3, 0]);
-    }
+    use crate::{scenario, given, when, then};
+
+    scenario!(bit_reverse_array "test bit reverse array" {
+        given!("array as source" {
+            let source = vec![0, 1, 2, 3, 4, 5, 6];
+        });
+        when!("do bit reverse on it" {
+            let bit_reverse_array = BitReverser::new( 3);
+        });
+        then!("it should return bit reverse index" {
+            assert_eq!(bit_reverse_array.get_reverse(&source), vec![0, 4, 2, 6, 1, 5, 3, 0]);
+        });
+    });
 }

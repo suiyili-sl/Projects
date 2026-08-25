@@ -1,172 +1,223 @@
+use std::iter::FromIterator;
 use super::domain_error::DomainError;
-use super::fft::fourier_transform::{ComplexValue, PolynomialTransform, InverseTransform, FourierTransform};
-use std::fmt::Display;
-use std::ops::{Add, Mul};
 
-#[derive(Debug)]
-pub struct Bignum <const BASE: u8> {
-    value: Vec<u8>,
+pub type RadixType = u8;
+#[derive(Debug, Clone)]
+pub struct Bignum {
+    value: Vec<RadixType>,
+    radix: RadixType,
+    sign: bool,
 }
-impl<const BASE : u8> Bignum<BASE> {
-    pub fn new(value: Vec<u8>) -> Result<Self, DomainError> {
-        let check = value.iter().all(|&x| x < BASE);
-        if check {
-            let mut value = value;
-            value.reverse();
-            Ok(
-                Self {
-                value
-            })
-        } else {
-            Err(DomainError::InvalidDigit(BASE))
-        }
-    }
 
-    pub fn from_str(num: &str) -> Result<Self, DomainError> {
-        let base = BASE as u32;
-        let value = num.chars()
-          .map(|c| c.to_digit(base))
-          .collect::<Vec<Option<u32>>>();
-        if value.iter().any(|&x| x.is_none()) {
-            return Err(DomainError::InvalidDigit(BASE));
-        }
-        Self::new(value.iter().map(|&x| x.unwrap() as u8).collect())
+impl Bignum {
+    pub fn new_positive(value: Vec<RadixType>, radix: RadixType)
+        -> Result<Bignum, DomainError> {
+        Self::new(value, radix, false)
     }
-
-    fn from_vector(num: impl Iterator<Item = u16>) -> Self {
-        let mut radix_vec = Vec::new();
-        radix_vec.reserve(num.size_hint().0 + 1);
-        let mut to_higher = 0u16;
+    pub fn new_negative(value: Vec<RadixType>, radix: RadixType)
+        -> Result<Bignum, DomainError>
+    {
+        Self::new(value, radix,true)
+    }
+    pub fn from_iter(num: impl Iterator<Item=i64>, radix: RadixType)
+                         -> Result<Bignum, DomainError> {
+        let mut sign_num = 0;
+        let mut to_higher = 0;
+        let radix = radix as i64;
+        let mut value: Vec<_> = Vec::with_capacity(num.size_hint().0 + 1);
         for digit in num {
-            let digit = digit + to_higher;
-            to_higher = digit / BASE as u16;
-            radix_vec.push((digit % BASE as u16) as u8);
+            let mut digit = digit + to_higher;
+            to_higher = digit / radix;
+            digit %= radix;
+            if digit != 0 {
+                sign_num = digit.signum();
+            }
+            value.push(digit);
+        }
+
+        while to_higher != 0 {
+            value.push(to_higher % radix);
+            to_higher /= radix;
+        }
+
+        for digit in value.iter_mut() {
+            let mut d = *digit * sign_num + to_higher;
+            if d < 0 {
+                d += radix;
+                to_higher = -1;
+            } else {
+                to_higher = 0
+            }
+            *digit = d;
+        }
+        let radix = radix as u8;
+        let value = value.into_iter()
+          .map(|digit| digit as u8).collect();
+        Self::new(value, radix, sign_num < 0)
+    }
+
+    fn new(value: Vec<RadixType>, radix: RadixType, sign: bool) -> Result<Bignum, DomainError> {
+        if value.iter().all(|&x| x < radix) {
+            if let Some(end) = value.iter()
+              .rposition(|&x| x != 0) {
+                let mut value = value;
+                value.truncate(end + 1);
+                Ok(Self{value, radix, sign})
+            } else {
+                Ok(Self{value: vec![0], radix, sign: false})
+            }
+        } else {
+            Err(DomainError::RadixNotMatch(radix))
+        }
+    }
+    pub fn len(&self) -> usize {
+        self.value.len()
+    }
+    pub fn get_radix(&self) -> RadixType {self.radix}
+    pub fn has_sign(&self) -> bool {self.sign}
+    pub fn reverse(&self) -> Self {
+        Self{value: self.value.clone(), radix: self.radix, sign: !self.sign}
+    }
+
+    pub fn map<'a>(&'a self, with_sign: bool)->impl Iterator<Item=i64>+'a {
+        let sign = if self.sign && with_sign {-1} else {1};
+        self.value.iter().map(move |&x| sign * (x as i64))
+    }
+}
+
+impl From<Vec<RadixType>> for Bignum {
+    fn from(values: Vec<RadixType>) -> Self {
+        Self{
+            radix: 16, sign: true, value: values
+        }
+    }
+}
+
+impl FromIterator<RadixType> for Bignum {
+    fn from_iter<T: IntoIterator<Item=RadixType>>(iter: T) -> Self {
+        let mut value = Vec::new();
+        for i in iter {
+            value.push(i);
         }
         Self{
-            value: radix_vec
-        }
-    }
-
-    pub fn to_string(&self) -> Result<String, DomainError> {
-        let trimmed = self.trim_zeros();
-        let base = BASE as u32;
-        let value = trimmed.iter().rev()
-          .map(|&x| char::from_digit( x as u32, base))
-          .collect::<Vec<Option<char>>>();
-        if value.iter().any(|&x| x.is_none()) {
-            return Err(DomainError::InvalidDigit(BASE));
-        }
-        Ok(String::from_iter(value.iter().map(|&x| x.unwrap())))
-    }
-
-    fn trim_zeros(&self) -> &[u8] {
-        if let Some(pos) = self.value.iter().rposition(|&x| x != 0) {
-            &self.value[..=pos]
-        } else {
-            &self.value[..1] // Slice was entirely zeros
+            radix: 16, sign: true, value
         }
     }
 }
-impl<const BASE : u8> PartialEq for Bignum<BASE> {
+
+impl PartialEq for Bignum {
     fn eq(&self, other: &Self) -> bool {
-        self.trim_zeros() == other.trim_zeros()
+        self.radix == other.radix
+          && self.sign == other.sign
+        && self.value == other.value
     }
 }
 
-impl<const BASE : u8> Display for Bignum<BASE> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let trimmed = self.trim_zeros();
-        for &digit in trimmed.iter().rev() {
-            write!(f, "{}", digit)?;
-        }
-        Ok(())
-    }
-}
-
-impl<const BASE : u8> Mul for Bignum<BASE> {
-    type Output = Self;
-
-    fn mul(self, rhs: Self) -> Self::Output {
-        let poly_trans = PolynomialTransform::new(8);
-        let a = poly_trans.transform(&self.value.iter().map(|&x| ComplexValue::new(x as f64, 0.0)).collect::<Vec<_>>());
-        let b = poly_trans.transform(&rhs.value.iter().map(|&x| ComplexValue::new(x as f64, 0.0)).collect::<Vec<_>>());
-        let c = a.iter().zip(b.iter()).map(|(&x, &y)| x * y).collect::<Vec<_>>();
-        let inverse_trans = InverseTransform::new(8);
-        let result = inverse_trans.transform(&c);
-        let result = result.iter().map(|&x| x.re.round() as u16);
-        Bignum::from_vector(result)
-    }
-}
-
-impl<const BASE : u8> Add for Bignum<BASE> {
-    type Output = Self;
-
-    fn add(self, rhs: Self) -> Self::Output {
-        let max_len = std::cmp::max(self.value.len(), rhs.value.len());
-        let a = self.value.iter().chain(std::iter::repeat(&0));
-        let b = rhs.value.iter().chain(std::iter::repeat(&0));
-        let c= a.zip(b).take(max_len).map(|(&a_digit, &b_digit)| (a_digit + b_digit) as u16);
-        Self::from_vector(c)
-    }
-}
-
-#[cfg(test)]
-mod tests {
+mod test {
     use super::*;
-    #[test]
-    fn test_bignum_base() {
-        let num = Bignum::<10>::new(vec![0, 1, 2, 10, 0, 0]);
-        assert!(num.is_err());
-    }
-    #[test]
-    fn test_bignum_equality() {
-        let num1 = Bignum::<10>::new(vec![0, 0, 1, 2, 3, 0]).unwrap();
-        let num2 = Bignum::<10>::new(vec![1, 2, 3, 0]).unwrap();
-        let num3 = Bignum::<10>::new(vec![0, 1, 2]).unwrap();
+    use crate::{scenario, given, when, then};
 
-        assert_eq!(num1, num2);
-        assert_ne!(num1, num3);
-    }
-    #[test]
-    fn test_bignum_from_decimal() {
-        let num = "01234567890";
-        let decimal_num = Bignum::<10>::from_str(num).unwrap();
-        let string_num = decimal_num.to_string().unwrap();
-        assert_eq!(string_num, num.strip_prefix("0").unwrap());
-    }
+    scenario!(bignum_new_with_given_radix "test new bignum with given radix" {
+        {
+            given!("invalid digits for radix 2" {
+                let num = Bignum::new_positive(vec![0, 2, 3], 2);
+            });
+            then!("they should return errors" {
+                assert!(num.is_err());
+            });
+        }
+        {
+            given!("invalid digits for radix 10" {
+                let num = Bignum::new_negative(vec![0, 12, 3, 0], 10);
+            });
+            then!("they should return errors" {
+                assert!(num.is_err());
+            });
+        }
+    });
 
-    #[test]
-    fn test_bignum_from_hex() {
-        let num = "0123456789ABCDEF0";
-        let hex_num = Bignum::<16>::from_str(num).unwrap();
-        let string_num = hex_num.to_string().unwrap();
-        assert_eq!(string_num, num.to_lowercase().strip_prefix("0").unwrap());
-    }
+    scenario!(bignum_from_irregular_source "test new bignum from irregular source" {
+        given!("an iterator with mixed signed digits" {
+            let source = vec![0i64, -1, 12, -25, 1];
+        });
+        when!("constructing bignum from the iterator with radix 10" {
+            let num = Bignum::from_iter(source.into_iter(), 10).unwrap();
+        });
+        then!("the result should be negative and normalized" {
+            assert!(num.has_sign());
+            let digits = num.map(false).collect::<Vec<_>>();
+            assert_eq!(digits, vec![0, 1, 8, 3, 1]);
+        });
+    });
 
-    #[test]
-    fn test_bignum_addition() {
-        let num1 = Bignum::<10>::from_str("12345678901234567890").unwrap();
-        let num2 = Bignum::<10>::from_str("98765432109876543210").unwrap();
-        let result = num1 + num2;
-        let expected = Bignum::<10>::from_str("11111111011111111100").unwrap();
-        assert_eq!(result, expected);
-    }
+    scenario!(bignum_zero_without_sign "zero value should not have sign" {
+        when!("creating a negative bignum that represents zero" {
+            let num = Bignum::new_negative(vec![0, 0, 0], 2).unwrap();
+        });
+        then!("the zero should not carry a sign" {
+            assert!(!num.has_sign());
+        });
+    });
 
-    #[test]
-    fn test_decimal_bignum_multiplication() {
-        let num1 = Bignum::<10>::from_str("37").unwrap();
-        let num2 = Bignum::<10>::from_str("176").unwrap();
-        let result = num1 * num2;
-        let expected = Bignum::<10>::from_str("6512").unwrap();
-        assert_eq!(result, expected);
-    }
+    scenario!(bignum_map_with_sign "map exposes signed digits when requested" {
+        given!("a negative bignum with trailing zeros" {
+            let num = Bignum::new_negative(vec![0, 1, 0, 1, 0, 0], 2).unwrap();
+        });
+        when!("mapping with sign enabled" {
+            let mapped = num.map(true).collect::<Vec<i64>>();
+        });
+        then!("the mapped digits should include negative signs and be trimmed" {
+            assert!(num.has_sign());
+            assert_eq!(mapped, vec![0, -1, 0, -1]);
+        });
+    });
 
-    #[test]
-    fn test_hex_bignum_multiplication() {
-        let num1 = Bignum::<16>::from_str("2B5").unwrap();
-        let num2 = Bignum::<16>::from_str("A4F").unwrap();
-        let result = num1 * num2;
-        let expected = Bignum::<16>::from_str("1BE7DB").unwrap();
-        assert_eq!(result, expected);
-    }
+    scenario!(bignum_reverse_sign "reverse flips sign without changing digits" {
+        given!("a positive bignum" {
+            let num_pos = Bignum::new_positive(vec![0, 3, 5, 2], 10).unwrap();
+        });
+        when!("reversing its sign" {
+            let num_neg = num_pos.reverse();
+        });
+        then!("the sign should be flipped and digits preserved" {
+            assert!(!num_pos.has_sign());
+            assert!(num_neg.has_sign());
+            let digits = num_neg.map(false).collect::<Vec<i64>>();
+            assert_eq!(digits, vec![0, 3, 5, 2]);
+        });
+    });
+
+    scenario!(bignum_equality "test bignum equality and inequality" {
+        {
+            given!("a negative hex number with prefix zeros" {
+                let c1 = Bignum::new_negative(vec![0, 2, 3, 0], 10).unwrap();
+            });
+            then!("it will trim zero" {
+                let c1_trim = Bignum::new_negative(vec![0, 2, 3, 0, 0], 10).unwrap();
+                assert_eq!(c1, c1_trim);
+            });
+        }
+
+        {
+            given!("two numbers that differ by sign" {
+                let p = Bignum::new_positive(vec![0, 2, 3, 0], 10).unwrap();
+                let n = Bignum::new_negative(vec![0, 2, 3, 0, 0], 10).unwrap();
+            });
+            then!("they should not be equal" {
+                assert_ne!(p, n);
+            });
+        }
+
+        {
+            given!("numbers that differ only by radix" {
+                let n = Bignum::new_negative(vec![0, 2, 3, 0, 0], 10).unwrap();
+                let r = Bignum::new_positive(vec![0, 2, 3, 0, 0], 16).unwrap();
+            });
+            then!("they should not be equal" {
+                assert_ne!(n, r);
+            });
+        }
+    });
+
 }
+

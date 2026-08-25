@@ -1,0 +1,19 @@
+A small Rust service exposing big-number arithmetic (add, subtract, multiply) via rmcp. Includes BDD tests (src/calculator.feature).
+Requirements
+•
+Rust (stable)
+•
+cargo
+Quick start
+•
+Build: cargo build --release
+•
+Run (stdio RPC): cargo run -- stdio
+•
+Run (HTTP): cargo run -- http
+Tests
+•
+cargo test
+Notes
+•
+Uses rmcp, tokio, axum, serde.

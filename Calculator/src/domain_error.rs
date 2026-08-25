@@ -1,23 +1,14 @@
 use thiserror::Error;
-use std::io;
 
 #[derive(Error, Debug)]
 pub enum DomainError {
-  #[error("invalid configuration parameter: {0}")]
-  ConfigError(String),
-/*
-  #[error("database query failed")]
-  DatabaseError {
-    #[source]
-    source: sqlx::Error, // Keeps track of lower-level causes
-  },
-*/
-  #[error("input/output failure occurred")]
-  IoError(#[from] io::Error), // Automatically converts std::io::Error to DomainError via `?`
+  #[error("The given input has wrong format for radix({0})")]
+  RadixNotMatch(u8),
 
-  #[error("requested resource (ID {id}) was not found")]
-  NotFound { id: u64 },
+  #[error("Wrong format input {input}")]
+  ParsingError{input: String},
 
-  #[error("failed to convert digit for radix {0}")]
-  InvalidDigit(u8),
+  #[error("Two given number radix ({0}{1}) not same")]
+  NotSameRadix(u8, u8),
 }
+
