@@ -15,34 +15,40 @@ pub struct Calculator;
 #[tool_router(server_handler)]
 impl Calculator {
   #[tool(description = "Add two big numbers")]
-  fn add(&self, Parameters(Operands { a, b }): Parameters<Operands>) -> String {
-    Self::calculate(&a, &b, |a, b| a + b)
+  fn add(&self, Parameters(Operands { a, b }): Parameters<Operands>) -> Result<String, String> {
+    let r = Self::calculate(&a, &b, |a, b| a + b);
+    r.map(|n| n.into()).map_err(|e| e.to_string())
   }
 
   #[tool(description = "Subtract two numbers")]
-  fn subtract(&self, Parameters(Operands { a, b }): Parameters<Operands>) ->String{
-    Self::calculate(&a, &b, |a, b| a - b)
+  fn subtract(&self, Parameters(Operands { a, b }): Parameters<Operands>) -> Result<String, String> {
+    let r = Self::calculate(&a, &b, |a, b| a - b);
+    r.map(|n| n.into()).map_err(|e| e.to_string())
   }
 
   #[tool(description = "Multiply two big numbers")]
-  fn multiply(&self, Parameters(Operands { a, b }): Parameters<Operands>) -> String {
-    Self::calculate(&a, &b, |a, b| a * b)
+  fn multiply(&self, Parameters(Operands { a, b }): Parameters<Operands>) -> Result<String, String> {
+    let r = Self::calculate(&a, &b, |a, b| a * b);
+    r.map(|n| n.into()).map_err(|e| e.to_string())
   }
 
-  fn calculate<Calc>(a: &str, b: &str, f : Calc) -> String
+  #[tool(description = "Divide big numbers")]
+  fn divide(&self, Parameters(Operands { a, b }): Parameters<Operands>) -> Result<String, String> {
+    todo!()
+  }
+
+  fn calculate<Calc>(a: &str, b: &str, f : Calc) -> Result<Bignum, DomainError>
   where Calc: Fn(&Bignum, &Bignum)->Result<Bignum, DomainError>
   {
     let a = Bignum::from_str(&a);
     let b = Bignum::from_str(&b);
     match (a, b){
       (Ok(a), Ok(b)) => {
-        let c = f(&a, &b);
-        match c {
-          Ok(c) => c.into(),
-          Err(e) => e.to_string(),
-        }
+        f(&a, &b)
       }
-      _ => "number format is wrong!".to_string()
+      _ => Err(DomainError::ParsingError {
+        input: "number format is wrong!".to_string()
+      })
     }
   }
 }
@@ -74,18 +80,18 @@ mod test {
   fn add_two_big_numbers(operands: &mut Operands) -> StepResult<String, String> {
     let calculator = Calculator;
     let result = calculator.add(Parameters(Operands { a: operands.a.clone(), b: operands.b.clone() }));
-    Ok(result)
+    result
   }
 
   #[then("I should get {expected:String}")]
   fn check_add_result(operands: &mut Operands, expected: String) -> StepResult<(), String> {
     let calculator = Calculator;
     let result = calculator.add(Parameters(Operands { a: operands.a.clone(), b: operands.b.clone() }));
-    if result.eq_ignore_ascii_case(&expected) {
+    result.and_then(|n| if expected.eq_ignore_ascii_case(&n) {
       Ok(())
     } else {
-      Err(format!("Expected: {}, but got: {}", expected, result))
-    }
+      Err(format!("Expected: {}, but got: {}", expected, n))
+    })
   }
 
   #[scenario("src/calculator.feature", name = "Two big numbers multiplication")]
@@ -97,18 +103,18 @@ mod test {
   fn multiply_two_big_numbers(operands: &mut Operands) -> StepResult<String, String> {
     let calculator = Calculator;
     let result = calculator.multiply(Parameters(Operands { a: operands.a.clone(), b: operands.b.clone() }));
-    Ok(result)
+    result
   }
 
   #[then("The multiplication result should be {expected:String}")]
   fn check_multiply_result(operands: &mut Operands, expected: String) -> StepResult<(), String> {
     let calculator = Calculator;
     let result = calculator.multiply(Parameters(Operands { a: operands.a.clone(), b: operands.b.clone() }));
-    if result.eq_ignore_ascii_case(&expected) {
+    result.and_then(|n| if expected.eq_ignore_ascii_case(&n) {
       Ok(())
     } else {
-      Err(format!("Expected: {}, but got: {}", expected, result))
-    }
+      Err(format!("Expected: {}, but got: {}", expected, n))
+    })
   }
 
   #[scenario("src/calculator.feature", name = "Two big numbers subtract")]
@@ -121,7 +127,7 @@ mod test {
   {
     let calculator = Calculator;
     let result = calculator.subtract(Parameters(Operands { a: operands.a.clone(), b: operands.b.clone() }));
-    Ok(result)
+    result
   }
 
   #[then("The subtract result should be {expected:String}")]
@@ -129,10 +135,29 @@ mod test {
     -> StepResult<(), String> {
     let calculator = Calculator;
     let result = calculator.subtract(Parameters(Operands { a: operands.a.clone(), b: operands.b.clone() }));
-    if result.eq_ignore_ascii_case(&expected) {
+    result.and_then(|n| if expected.eq_ignore_ascii_case(&n) {
       Ok(())
     } else {
-      Err(format!("Expected: {}, but got: {}", expected, result))
-    }
+      Err(format!("Expected: {}, but got: {}", expected, n))
+    })
+  }
+
+  #[scenario("src/calculator.feature", name = "Two big numbers division")]
+  fn test_division(operands: Operands)
+  {
+  }
+
+  #[when("one divide another")]
+  fn divide_two_big_numbers(operands: &mut Operands) -> StepResult<String, String>
+  {
+    let calculator = Calculator;
+    let result = calculator.divide(Parameters(Operands { a: operands.a.clone(), b: operands.b.clone() }));
+    result
+  }
+
+  #[then("The division result should be {quotient:String} and {reminder:String}")]
+  fn check_division_result(operands: &mut Operands, quotient: String, reminder: String)
+                           -> StepResult<(), String> {
+   todo!()
   }
 }
