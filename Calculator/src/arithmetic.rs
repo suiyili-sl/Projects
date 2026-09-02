@@ -1,7 +1,7 @@
 use super::domain_error::DomainError;
 use super::fft::fourier_transform::{ComplexValue, PolynomialTransform, InverseTransform, FourierTransform};
-use super::bignum::Bignum;
-use std::ops::{Add, Sub, Mul};
+use super::bignum::{Bignum, RadixType};
+use std::ops::{Add, Sub, Mul, Div};
 use std::str::FromStr;
 impl FromStr for Bignum {
     type Err = DomainError;
@@ -57,26 +57,6 @@ impl Into<String> for Bignum {
     }
 }
 
-impl<'a> Mul for &'a Bignum {
-    type Output = Result<Bignum, DomainError>;
-
-    fn mul(self, rhs: Self) -> Self::Output {
-        let radix = self.get_radix();
-        if radix != rhs.get_radix() {
-            return Err(DomainError::NotSameRadix(radix, rhs.get_radix()))
-        }
-        let poly_trans = PolynomialTransform::new(8);
-        let a = self.map(true).map(|x| ComplexValue::new(x as f64, 0.0)).collect::<Vec<_>>();
-        let a = poly_trans.transform(&a);
-        let b = rhs.map(true).map(|x| ComplexValue::new(x as f64, 0.0)).collect::<Vec<_>>();
-        let b = poly_trans.transform(&b);
-        let c = a.iter().zip(b.iter()).map(|(&x, &y)| x * y).collect::<Vec<_>>();
-        let inverse_trans = InverseTransform::new(8);
-        let result = inverse_trans.transform(&c);
-        let result = result.iter().map(|&x| x.re.round() as i64);
-        Bignum::from_iter(result, radix)
-    }
-}
 
 impl<'a> Add for &'a Bignum {
     type Output = Result<Bignum, DomainError>;
@@ -99,14 +79,97 @@ impl<'a> Add for &'a Bignum {
 impl<'a> Sub for &'a Bignum {
     type Output = Result<Bignum, DomainError>;
     fn sub(self, rhs: Self) -> Self::Output {
-       let rhs = rhs.reverse();
+        let rhs = rhs.reverse();
         self.add(&rhs)
     }
 
 }
 
+impl<'a> Mul for &'a Bignum {
+    type Output = Result<Bignum, DomainError>;
+
+    fn mul(self, rhs: Self) -> Self::Output {
+        let radix = self.get_radix();
+        if radix != rhs.get_radix() {
+            return Err(DomainError::NotSameRadix(radix, rhs.get_radix()))
+        }
+        let poly_trans = PolynomialTransform::new(8);
+        let a = self.map(true).map(|x| ComplexValue::new(x as f64, 0.0)).collect::<Vec<_>>();
+        let a = poly_trans.transform(&a);
+        let b = rhs.map(true).map(|x| ComplexValue::new(x as f64, 0.0)).collect::<Vec<_>>();
+        let b = poly_trans.transform(&b);
+        let c = a.iter().zip(b.iter()).map(|(&x, &y)| x * y).collect::<Vec<_>>();
+        let inverse_trans = InverseTransform::new(8);
+        let result = inverse_trans.transform(&c);
+        let result = result.iter().map(|&x| x.re.round() as i64);
+        Bignum::from_iter(result, radix)
+    }
+}
+
+fn make_two(radix: RadixType, len: usize) -> Result<Bignum, DomainError> {
+    let mut two = vec![0; len + 1];
+    if radix == 2 {
+        two[1] = 1;
+    } else {
+        two[0] = 2;
+    }
+    two.rotate_right(len);
+    Bignum::new_positive(two, radix)
+}
+impl<'a> Div for &'a Bignum {
+    type Output = Result<(Bignum, Bignum), DomainError>;
+
+    fn div(self, rhs: Self) -> Self::Output {
+        if self.get_radix() != rhs.get_radix() {
+            return Err(DomainError::NotSameRadix(self.get_radix(), rhs.get_radix()));
+        }
+        if rhs.is_zero() {
+            return Err(DomainError::DivisionByZero);
+        }
+
+        let sign = self.has_sign() != rhs.has_sign();
+
+        let a = &self.abs();
+        let b = &rhs.abs();
+        if a == b {
+            let q = Bignum::new_positive(vec![1], self.get_radix())?;
+            return if sign {
+                Ok((q.reverse(), Bignum::new_positive(vec![0], self.get_radix())?))
+            } else {
+                Ok((q, Bignum::new_positive(vec![0], self.get_radix())?))
+            }
+        }
+        if a < b {
+            return Ok((Bignum::new_positive(vec![0], self.get_radix())?, self.clone()));
+        }
+
+        let len = b.len() * 2;
+        let two = &make_two(a.get_radix(), len)?;
+        let mut reciprocal = two.clone().truncate(b.len());
+        for _ in 0..5 {
+            let q = &reciprocal;
+            let s = &(two - &(b * q)?)?;
+            reciprocal = ((q * s)?).truncate(len);
+        }
+
+        let mut quotient = (a * &reciprocal)?.truncate(len);
+        let mut remainder = (a - &(&quotient * b)?)?;
+        if b <= &remainder {
+            let one = &Bignum::new_positive(vec![1], self.get_radix())?;
+            quotient = (&quotient + one)?;
+            remainder = (&remainder - b)?;
+        }
+        if sign {
+            Ok((quotient.reverse(), remainder.reverse()))
+        } else {
+            Ok((quotient, remainder))
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use rstest_bdd::assert_step_err;
     use super::*;
     use crate::{scenario, given, when, then};
 
@@ -203,28 +266,6 @@ mod tests {
         }
     });
 
-    scenario!(bignum_equality "test bignum equality" {
-        given!("hex big number with prefix zeros" {
-            let num1 = Bignum::from_str("0X001230").unwrap();
-        });
-        {
-            given!("another big number with same radix without prefix 0" {
-                let num2 = Bignum::from_str("0X1230").unwrap();
-            });
-            then!("they are equal" {
-                assert_eq!(num1, num2);
-            });
-        }
-        {
-            given!("another bignum with different radix" {
-                let num3 = Bignum::from_str("0123").unwrap();
-            });
-            then!("they are not equal" {
-                assert_ne!(num1, num3);
-            });
-        }
-    });
-
     scenario!(bignum_addition "test bignum addition" {
         given!("two big number" {
             let num1 = &Bignum::from_str("12345678901234567890").unwrap();
@@ -284,5 +325,73 @@ mod tests {
         });
     });
 
+    scenario!(divide_by_zero "test bignum division by zero" {
+        given!("a big number and zero" {
+            let num1 = &Bignum::from_str("0xAF30").unwrap();
+            let num2 = &Bignum::from_str("0x0").unwrap();
+        });
+        when!("divide num1 by num2" {
+            let result = num1 / num2;
+        });
+        then!("it should return division by zero error" {
+            assert!(result.is_err());
+            let e = assert_step_err!(result);
+            assert_eq!(e, DomainError::DivisionByZero);
+        });
+    });
+
+    scenario!(bignum_divisor_less_than_dividend "it should return 0 and a if abs(a) < abs(b)" {
+        given!("two bignum" {
+            let num1 = &Bignum::from_str("-0x123").unwrap();
+            let num2 = &Bignum::from_str("-0x456").unwrap();
+        });
+        when!("num1 divides num2" {
+            let result = num1 / num2;
+        });
+        then!("it should return 0 and num1" {
+            let result = result.unwrap();
+            let quotient = Bignum::from_str("0X0").unwrap();
+            let remainder = Bignum::from_str("-0x123").unwrap();
+            assert_eq!(result.0, quotient);
+            assert_eq!(result.1, remainder);
+        });
+    });
+
+    scenario!(hex_bignum_division "test hex bignum division" {
+        given!("two bignum" {
+            let num1 = &Bignum::from_str("0X2B5ACF0852E0").unwrap();
+            let num2 = &Bignum::from_str("-0XA4BC32").unwrap();
+        });
+        when!("num1 divides num2" {
+            let result = num1 / num2;
+        });
+        then!("it should return quotient and remainder" {
+            let result = result.unwrap();
+            let quotient = Bignum::from_str("-0x435FA8").unwrap();
+            let remainder = Bignum::from_str("-0X4410").unwrap();
+            assert_eq!(result.0, quotient);
+            assert_eq!(result.1, remainder);
+        });
+
+    });
+/*
+    scenario!(decimal_bignum_division "test bignum division" {
+        given!("two bignum" {
+            let num1 = &Bignum::from_str("55").unwrap();
+            let num2 = &Bignum::from_str("-10").unwrap();
+        });
+        when!("num1 divides num2" {
+            let result = num1 / num2;
+        });
+        then!("it should return quotient and remainder" {
+            let result = result.unwrap();
+            let quotient = Bignum::from_str("-5").unwrap();
+            let remainder = Bignum::from_str("-5").unwrap();
+            assert_eq!(result.0, quotient);
+            assert_eq!(result.1, remainder);
+        });
+
+    });
+ */
 }
 

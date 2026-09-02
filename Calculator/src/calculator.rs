@@ -1,6 +1,7 @@
 use std::str::FromStr;
 use rmcp::{tool, tool_router};
-use rmcp::handler::server::wrapper::Parameters;
+use rmcp::handler::server::wrapper::{Parameters, Json};
+use serde_json::{json, Value};
 use super::bignum::{Bignum};
 use super::domain_error::DomainError;
 
@@ -15,30 +16,41 @@ pub struct Calculator;
 #[tool_router(server_handler)]
 impl Calculator {
   #[tool(description = "Add two big numbers")]
-  fn add(&self, Parameters(Operands { a, b }): Parameters<Operands>) -> Result<String, String> {
+  fn add(&self, Parameters(Operands { a, b }): Parameters<Operands>)
+    -> Result<String, String> {
     let r = Self::calculate(&a, &b, |a, b| a + b);
     r.map(|n| n.into()).map_err(|e| e.to_string())
   }
 
   #[tool(description = "Subtract two numbers")]
-  fn subtract(&self, Parameters(Operands { a, b }): Parameters<Operands>) -> Result<String, String> {
+  fn subtract(&self, Parameters(Operands { a, b }): Parameters<Operands>)
+    -> Result<String, String> {
     let r = Self::calculate(&a, &b, |a, b| a - b);
     r.map(|n| n.into()).map_err(|e| e.to_string())
   }
 
   #[tool(description = "Multiply two big numbers")]
-  fn multiply(&self, Parameters(Operands { a, b }): Parameters<Operands>) -> Result<String, String> {
+  fn multiply(&self, Parameters(Operands { a, b }): Parameters<Operands>)
+    -> Result<String, String> {
     let r = Self::calculate(&a, &b, |a, b| a * b);
     r.map(|n| n.into()).map_err(|e| e.to_string())
   }
 
   #[tool(description = "Divide big numbers")]
-  fn divide(&self, Parameters(Operands { a, b }): Parameters<Operands>) -> Result<String, String> {
-    todo!()
+  fn divide(&self, Parameters(Operands { a, b }): Parameters<Operands>)
+    -> Result<Json<Value>, String> {
+    let result = Self::calculate(&a, &b, |a, b| a / b);
+    result.map(|(a, b)| {
+      let a: String = a.into();
+      let b: String = b.into();
+      Json(json!({
+      "quotient" : a,
+      "remainder" : b,
+    }))}).map_err(|e| e.to_string())
   }
 
-  fn calculate<Calc>(a: &str, b: &str, f : Calc) -> Result<Bignum, DomainError>
-  where Calc: Fn(&Bignum, &Bignum)->Result<Bignum, DomainError>
+  fn calculate<Calc, T>(a: &str, b: &str, f : Calc) -> Result<T, DomainError>
+  where Calc: Fn(&Bignum, &Bignum)->Result<T, DomainError>
   {
     let a = Bignum::from_str(&a);
     let b = Bignum::from_str(&b);
@@ -152,12 +164,32 @@ mod test {
   {
     let calculator = Calculator;
     let result = calculator.divide(Parameters(Operands { a: operands.a.clone(), b: operands.b.clone() }));
-    result
+    result.and_then(|j| Ok("ok".to_string()))
   }
 
-  #[then("The division result should be {quotient:String} and {reminder:String}")]
-  fn check_division_result(operands: &mut Operands, quotient: String, reminder: String)
+  fn get_result(v : &Json<Value>) -> (Option<&str>, Option<&str>) {
+    let v = &v.0;
+    let quotient = v.get("quotient");
+    let remainder = v.get("remainder");
+    let quotient = quotient.and_then(|v| v.as_str());
+    let remainder = remainder.and_then(|v| v.as_str());
+    (quotient, remainder)
+  }
+
+  #[then("The division result should be {quotient:String} and {remainder:String}")]
+  fn check_division_result(operands: &mut Operands, quotient: String, remainder: String)
                            -> StepResult<(), String> {
-   todo!()
+
+    let calculator = Calculator;
+    let result = calculator.divide(Parameters(Operands { a: operands.a.clone(), b: operands.b.clone() }));
+    result.and_then(|n| if let (Some(q), Some(r)) = get_result(&n) {
+      if (q.eq_ignore_ascii_case(&quotient)) && (r.eq_ignore_ascii_case(&remainder)) {
+        Ok(())
+      } else {
+        Err(format!("Expected: {}, {}, but got: {}, {}", quotient, remainder, q, r))
+      }
+    } else {
+      Err(format!("Expected: {}, {}, but got nothing", quotient, remainder))
+    })
   }
 }

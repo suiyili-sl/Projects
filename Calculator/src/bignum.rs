@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::iter::FromIterator;
 use super::domain_error::DomainError;
 
@@ -75,8 +76,18 @@ impl Bignum {
     }
     pub fn get_radix(&self) -> RadixType {self.radix}
     pub fn has_sign(&self) -> bool {self.sign}
+    pub fn is_zero(&self) -> bool {self.value.len() == 1 && self.value[0] == 0}
     pub fn reverse(&self) -> Self {
         Self{value: self.value.clone(), radix: self.radix, sign: !self.sign}
+    }
+    pub fn abs(&self) -> Self {
+        Self{value: self.value.clone(), radix: self.radix, sign: false}
+    }
+    pub fn truncate(&self, size: usize) -> Self {
+        let data = if size < self.value.len() {
+            self.value[size..].to_vec()
+        } else { vec![0] };
+        Self{value: data, radix: self.radix, sign: self.sign}
     }
 
     pub fn map<'a>(&'a self, with_sign: bool)->impl Iterator<Item=i64>+'a {
@@ -112,10 +123,58 @@ impl PartialEq for Bignum {
         && self.value == other.value
     }
 }
+impl PartialOrd<Self> for Bignum {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        if self.radix != other.radix {
+            return None;
+        }
+        if self.sign != other.sign {
+            return Some(if self.sign {Ordering::Less} else {Ordering::Greater});
+        }
+        let ord = self.value.len().cmp(&other.value.len());
+        if ord == Ordering::Equal {
+            for (a, b) in self.value.iter().rev()
+              .zip(other.value.iter().rev()) {
+                let ord = a.cmp(b);
+                if ord == Ordering::Equal {continue}
+                return Some(if self.sign {ord.reverse()} else {ord});
+            }
+            Some(Ordering::Equal)
+        } else {
+            Some(if self.sign {ord.reverse()} else {ord})
+        }
+    }
+}
 
 mod test {
     use super::*;
     use crate::{scenario, given, when, then};
+
+    scenario!(bignum_compare "test bignum comparison" {
+        given!("two bignums with same radix and sign" {
+            let a = Bignum::new_positive(vec![0, 2, 3], 10).unwrap();
+            let b = Bignum::new_positive(vec![0, 2, 4], 10).unwrap();
+        });
+        then!("they should be compared based on their digits" {
+            assert!(a < b);
+        });
+
+        given!("two bignums with different signs" {
+            let c = Bignum::new_negative(vec![0, 2, 5], 10).unwrap();
+            let d = Bignum::new_positive(vec![0, 2, 3], 10).unwrap();
+        });
+        then!("the negative one should be less than the positive one" {
+            assert!(c < d);
+        });
+
+        given!("two bignums with different radix" {
+            let e = Bignum::new_positive(vec![0, 2, 3], 10).unwrap();
+            let f = Bignum::new_positive(vec![0, 2, 3], 16).unwrap();
+        });
+        then!("they should not be comparable" {
+            assert_eq!(e.partial_cmp(&f), None);
+        });
+    });
 
     scenario!(bignum_new_with_given_radix "test new bignum with given radix" {
         {
@@ -159,6 +218,15 @@ mod test {
         });
     });
 
+    scenario!(bignum_is_zero "is_zero returns true for zero value" {
+        given!("a bignum representing zero" {
+            let num = Bignum::new_positive(vec![0, 0, 0], 10).unwrap();
+        });
+        then!("is_zero should return true" {
+            assert!(num.is_zero());
+        });
+    });
+
     scenario!(bignum_map_with_sign "map exposes signed digits when requested" {
         given!("a negative bignum with trailing zeros" {
             let num = Bignum::new_negative(vec![0, 1, 0, 1, 0, 0], 2).unwrap();
@@ -169,6 +237,21 @@ mod test {
         then!("the mapped digits should include negative signs and be trimmed" {
             assert!(num.has_sign());
             assert_eq!(mapped, vec![0, -1, 0, -1]);
+        });
+    });
+
+    scenario!(bignum_abs "abs returns a positive bignum" {
+        given!("a negative bignum" {
+            let num_neg = Bignum::new_negative(vec![0, 3, 5, 2], 10).unwrap();
+            assert!(num_neg.has_sign());
+        });
+        when!("taking its absolute value" {
+            let num_abs = num_neg.abs();
+        });
+        then!("the result should be positive and digits preserved" {
+            assert!(!num_abs.has_sign());
+            let digits = num_abs.map(false).collect::<Vec<i64>>();
+            assert_eq!(digits, vec![0, 3, 5, 2]);
         });
     });
 
@@ -184,6 +267,19 @@ mod test {
             assert!(num_neg.has_sign());
             let digits = num_neg.map(false).collect::<Vec<i64>>();
             assert_eq!(digits, vec![0, 3, 5, 2]);
+        });
+    });
+
+    scenario!(bignum_truncate_digits "truncate given number of digits" {
+        given!("a negative bignum" {
+            let num = Bignum::new_negative(vec![0, 10, 15, 2, 8, 6, 11, 12, 13, 0, 0], 16).unwrap();
+        });
+        when!("truncate 5 digits" {
+            let num = num.truncate(5);
+        });
+        then!("it should get remaining digits" {
+            let expected = Bignum::new_negative(vec![6, 11, 12, 13, 0, 0], 16).unwrap();
+            assert_eq!(num, expected);
         });
     });
 
